@@ -1,8 +1,11 @@
+# -*- coding: utf-8 -*-
+
 import numpy as np
 import torch
 from torchvision.utils import make_grid
 
 from base.base_trainer import BaseTrainer
+from data_loader import OmniglotVisualizer
 from utils.util import MetricTracker
 
 
@@ -12,8 +15,9 @@ class OmniglotTrainer(BaseTrainer):
     """
 
     def __init__(self, model, criterion, metric_ftns, metric_ftns_oneshot, optimizer, device, device_ids, epochs,
-                 writer, train_loader, val_loader=None, val_oneshot_loader=None, test_loader=None, lr_scheduler=None):
-        super().__init__(model, criterion, metric_ftns, optimizer, device, device_ids, epochs, writer)
+                 writer, monitor, train_loader, val_loader=None, val_oneshot_loader=None, test_loader=None,
+                 lr_scheduler=None):
+        super().__init__(model, criterion, metric_ftns, optimizer, device, device_ids, epochs, writer, monitor)
 
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -28,10 +32,8 @@ class OmniglotTrainer(BaseTrainer):
 
         self.train_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
         self.valid_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
-        self.valid_oneshot_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns_oneshot],
-                                                   writer=self.writer)
-        self.test_oneshot_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns_oneshot],
-                                                  writer=self.writer)  # TODO remove this :-)
+        self.valid_oneshot_metrics = MetricTracker(*[m.__name__ for m in self.metric_ftns_oneshot], writer=self.writer)
+        self.test_oneshot_metrics = MetricTracker(*[m.__name__ for m in self.metric_ftns_oneshot], writer=self.writer)
 
     def _train_epoch(self, epoch):
         self.model.train()
@@ -78,14 +80,14 @@ class OmniglotTrainer(BaseTrainer):
             log.update(**{'val_' + k: v for k, v in val_log.items()})
 
         if self.val_oneshot_loader is not None:
-            prefix = "val_oneshot_"
-            val_oneshot_log = self._oneshot_epoch(epoch, self.val_oneshot_loader, prefix)
+            prefix = "val_"
+            val_oneshot_log = self._oneshot_epoch(epoch, self.val_oneshot_loader, self.valid_oneshot_metrics, prefix)
             log.update(**{prefix + k: v for k, v in val_oneshot_log.items()})
 
         if self.test_loader is not None:
             # TODO remove this :-)
-            prefix = "test_oneshot_"
-            test_log = self._test_epoch(epoch, self.test_loader, prefix)
+            prefix = "test_"
+            test_log = self._oneshot_epoch(epoch, self.test_loader, self.test_oneshot_metrics, prefix)
             log.update(**{prefix + k: v for k, v in test_log.items()})
 
         if self.lr_scheduler is not None:
@@ -110,14 +112,39 @@ class OmniglotTrainer(BaseTrainer):
                 output = self.model(data[0], data[1])
                 for met in self.metric_ftns:
                     self.valid_metrics.update(met.__name__, met(output, target))
-                self.writer.add_image('input', make_grid([make_grid(data.cpu()[0], nrow=8, normalize=True),
-                                                          make_grid(data.cpu()[1], nrow=8, normalize=True)], nrow=2,
-                                                         normalize=True))
+                self.writer.add_image('input', OmniglotVisualizer.make_next_batch_grid(data.cpu()))
 
         return self.valid_metrics.result()
 
-    def _oneshot_epoch(self, epoch, loader, name="valid"):
-        pass
+    def _oneshot_epoch(self, epoch, loader, metrics, name="valid"):
+
+        self.model.eval()
+        self.valid_metrics.reset()
+
+        with torch.no_grad():
+            for batch_idx, (data,) in enumerate(loader):
+                for current_batch_data in data:
+                    # TODO actually, it does not make much sense to use batches in here, not in this way as i've modeled
+                    #  it where I have to anyways unzip the pairs inside each batch. Consider remodeling oneshot dataloader
+                    self.writer.set_step((epoch - 1) * len(loader) * 20 + batch_idx * 20, name)  # TODO check this
+
+                    current_batch_data = current_batch_data.to(self.device)
+                    second = current_batch_data[1]
+                    for target, first_image in enumerate(current_batch_data[0]):  # TODO write without last for loop
+                        # Now one shot (first_image vs 20 images):
+                        target = torch.tensor([target]).to(self.device)
+                        output = self.model(first_image.expand(second.shape), second)
+
+                        pred = output.max(0)[1]
+                        correct += int(pred == target)
+                        total += 1
+
+                        for met in self.metric_ftns_oneshot:
+                            metrics.update(met.__name__, met(output, target))
+                        self.writer.add_image('input',
+                                              OmniglotVisualizer.make_next_oneshot_batch_grid(current_batch_data.cpu()))
+
+            return metrics.result()
 
     def _progress(self, batch_idx):
         base = '[{}/{} ({:.0f}%)]'

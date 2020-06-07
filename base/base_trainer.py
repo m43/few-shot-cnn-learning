@@ -11,7 +11,7 @@ class BaseTrainer:
     Base class for all trainers
     """
 
-    def __init__(self, model, criterion, metric_ftns, optimizer, device, device_ids, epochs, writer):
+    def __init__(self, model, criterion, metric_ftns, optimizer, device, device_ids, epochs, writer, monitor):
         self.device = device
         self.model = model.to(device)
         if len(device_ids) > 1:
@@ -25,13 +25,13 @@ class BaseTrainer:
 
         self.start_epoch = 1
         self.writer = writer
-        self.checkpoint_location = f"./saved/models/{model._get_name()}___{datetime.now()}/"
+        self.checkpoint_location = f"./saved/models/{model._get_name()}/{datetime.now()}/"
         ensure_dir(self.checkpoint_location)
 
-        monitor_parts = "max val_accuracy".split()
+        monitor_parts = monitor.split()
         self.monitor_mode = monitor_parts[0].lower()
         self.monitor_best = monitor_parts[1]
-        self.monitor_early_stopping = 20
+        self.monitor_early_stopping = 30
 
         assert (self.monitor_mode == "min" or self.monitor_mode == "max")
 
@@ -56,7 +56,9 @@ class BaseTrainer:
             if is_better:
                 early_stop_counter = 0
                 best = log[self.monitor_best]
-                print("Found best model!")
+                path = f"{self.checkpoint_location}best_model.pth"
+                torch.save(self.model.state_dict(), path)
+                print("Found best model! Saved to:", path)
             else:
                 early_stop_counter += 1
                 if early_stop_counter >= self.monitor_early_stopping:

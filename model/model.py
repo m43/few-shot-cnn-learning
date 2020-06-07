@@ -97,14 +97,12 @@ class CnnKoch2015(nn.Module):
         x = torch.relu(self.fc1(x))  # 4096
         return x
 
+    def summary(self, device="cpu"):
+        summary(self, input_size=[(1, 105, 105), (1, 105, 105)], device=device)
+
 
 if __name__ == '__main__':
     net = CnnKoch2015()
-
     for name, param in net.named_parameters():
         print(name)
-
-    # use_gpu = torch.cuda.is_available()
-    # if use_gpu:
-    #     net = net.cuda()
-    summary(net, input_size=[(1, 105, 105), (1, 105, 105)], device="cpu")
+    net.summary()

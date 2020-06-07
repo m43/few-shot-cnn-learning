@@ -1,10 +1,16 @@
+import random
+
 from data_loader.data_loaders import OmniglotDataLoaderCreator
 from model.model import CnnKoch2015
 from trainer import *
-from utils.util import top_k_acc, TensorboardWriter, accuracy
+from utils.util import top_k_acc, TensorboardWriter, accuracy, accuracy_oneshot
 
 if __name__ == '__main__':
+    random.seed(72)
+    np.random.seed(72)
     torch.manual_seed(72)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
     # export CUDA_VISIBLE_DEVICES=1
 
@@ -31,10 +37,13 @@ if __name__ == '__main__':
     criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
     optimizer = torch.optim.Adam(koch2015.parameters(), lr=learning_rate)
     metric_ftns = [accuracy]
-    metric_ftns_oneshot = [accuracy, top_k_acc]
+    metric_ftns_oneshot = [accuracy_oneshot, top_k_acc]
     # writer = SummaryWriter("./logs")
     writer = TensorboardWriter("./logs")
 
     trainer = OmniglotTrainer(koch2015, criterion, metric_ftns, metric_ftns_oneshot, optimizer, device, [], epochs,
-                              writer, train_loader, val_loader)
+                              writer, "max val_accuracy_oneshot", train_loader, val_loader, val_oneshot_loader,
+                              test_oneshot_loader)
+
+    koch2015.summary(device.type)
     trainer.train()
