@@ -121,6 +121,9 @@ class OmniglotTrainer(BaseTrainer):
         self.model.eval()
         self.valid_metrics.reset()
 
+        correct = 0
+        total = 0
+
         with torch.no_grad():
             for batch_idx, (data,) in enumerate(loader):
                 for current_batch_data in data:
@@ -144,6 +147,7 @@ class OmniglotTrainer(BaseTrainer):
                         self.writer.add_image('input',
                                               OmniglotVisualizer.make_next_oneshot_batch_grid(current_batch_data.cpu()))
 
+            print(correct/total)
             return metrics.result()
 
     def _progress(self, batch_idx):
