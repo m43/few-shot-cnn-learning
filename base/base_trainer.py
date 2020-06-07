@@ -1,7 +1,9 @@
+import os
 from abc import abstractmethod
 from datetime import datetime
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 from utils import ensure_dir
 
@@ -11,7 +13,7 @@ class BaseTrainer:
     Base class for all trainers
     """
 
-    def __init__(self, model, criterion, metric_ftns, optimizer, device, device_ids, epochs, writer, monitor):
+    def __init__(self, model, criterion, metric_ftns, optimizer, device, device_ids, epochs, save_folder, monitor):
         self.device = device
         self.model = model.to(device)
         if len(device_ids) > 1:
@@ -22,13 +24,15 @@ class BaseTrainer:
         self.optimizer = optimizer
 
         self.epochs = epochs
-
         self.start_epoch = 1
-        self.writer = writer
-        self.checkpoint_location = f"./saved/models/{model._get_name()}/{datetime.now()}/"
-        ensure_dir(self.checkpoint_location)
 
-        monitor_parts = monitor.split()
+        self.logs_folder = f"log/{datetime.now()}"
+        self.checkpoint_location = os.path.join(save_folder, f"models/{model._get_name()}/{datetime.now()}/)")
+        ensure_dir(self.logs_folder)
+        ensure_dir(self.checkpoint_location)
+        self.writer = SummaryWriter(os.path.join(save_folder, self.logs_folder))
+
+        monitor_parts = monitor.split(maxsplit=1)
         self.monitor_mode = monitor_parts[0].lower()
         self.monitor_best = monitor_parts[1]
         self.monitor_early_stopping = 30
@@ -62,7 +66,7 @@ class BaseTrainer:
             else:
                 early_stop_counter += 1
                 if early_stop_counter >= self.monitor_early_stopping:
-                    print("Early stopping")
+                    print(f"Early stopping. {self.monitor_best} metric of best model: {best}")
                     return
 
             checkpoint = f"{self.checkpoint_location}epoch{epoch:03d}_valAcc{log[self.monitor_best]:.5f}.pth"

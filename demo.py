@@ -3,7 +3,7 @@ import random
 from data_loader.data_loaders import OmniglotDataLoaderCreator
 from model.model import CnnKoch2015
 from trainer import *
-from utils.util import top_k_acc, TensorboardWriter, accuracy, accuracy_oneshot
+from utils.util import top_k_acc, accuracy, accuracy_oneshot
 
 if __name__ == '__main__':
     random.seed(72)
@@ -38,11 +38,10 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(koch2015.parameters(), lr=learning_rate)
     metric_ftns = [accuracy]
     metric_ftns_oneshot = [accuracy_oneshot, top_k_acc]
-    # writer = SummaryWriter("./logs")
-    writer = TensorboardWriter("./logs")
+    save_folder = "./saved/"
 
     trainer = OmniglotTrainer(koch2015, criterion, metric_ftns, metric_ftns_oneshot, optimizer, device, [], epochs,
-                              writer, "max val_accuracy_oneshot", train_loader, val_loader, val_oneshot_loader,
+                              save_folder, "max val accuracy_oneshot", train_loader, val_loader, val_oneshot_loader,
                               test_oneshot_loader)
 
     koch2015.summary(device.type)

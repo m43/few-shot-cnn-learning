@@ -2,7 +2,6 @@
 
 import numpy as np
 import torch
-from torchvision.utils import make_grid
 
 from base.base_trainer import BaseTrainer
 from data_loader import OmniglotVisualizer
@@ -15,9 +14,9 @@ class OmniglotTrainer(BaseTrainer):
     """
 
     def __init__(self, model, criterion, metric_ftns, metric_ftns_oneshot, optimizer, device, device_ids, epochs,
-                 writer, monitor, train_loader, val_loader=None, val_oneshot_loader=None, test_loader=None,
+                 save_folder, monitor, train_loader, val_loader=None, val_oneshot_loader=None, test_loader=None,
                  lr_scheduler=None):
-        super().__init__(model, criterion, metric_ftns, optimizer, device, device_ids, epochs, writer, monitor)
+        super().__init__(model, criterion, metric_ftns, optimizer, device, device_ids, epochs, save_folder, monitor)
 
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -30,10 +29,14 @@ class OmniglotTrainer(BaseTrainer):
         self.len_epoch = len(self.train_loader)
         self.log_step = int(np.sqrt(self.train_loader.batch_size))
 
-        self.train_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
-        self.valid_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns], writer=self.writer)
-        self.valid_oneshot_metrics = MetricTracker(*[m.__name__ for m in self.metric_ftns_oneshot], writer=self.writer)
-        self.test_oneshot_metrics = MetricTracker(*[m.__name__ for m in self.metric_ftns_oneshot], writer=self.writer)
+        self.train_metrics = MetricTracker("train", 'loss', *[m.__name__ for m in self.metric_ftns])
+        self.valid_metrics = MetricTracker("val", 'loss', *[m.__name__ for m in self.metric_ftns])
+        self.valid_oneshot_metrics = MetricTracker("val", *[m.__name__ for m in self.metric_ftns_oneshot])
+        self.test_oneshot_metrics = MetricTracker("test", *[m.__name__ for m in self.metric_ftns_oneshot])
+
+        # input = next(iter(self.train_loader))[0].to(self.device)
+        # input = input.transpose(1, 0)
+        # self.writer.add_graph(model, [input[0], input[1]])
 
     def _train_epoch(self, epoch):
         self.model.train()
@@ -48,50 +51,44 @@ class OmniglotTrainer(BaseTrainer):
             loss.backward()
             self.optimizer.step()
 
-            self.writer.set_step((epoch - 1) * self.len_epoch + batch_idx)
+            step = (epoch - 1) * self.len_epoch + batch_idx
             self.train_metrics.update('loss', loss.item())
+            self.writer.add_scalar(f"{self.train_metrics.get_name()} loss", loss.item(), step)
             for met in self.metric_ftns:
                 self.train_metrics.update(met.__name__, met(output, target))
+                # self.writer.add_scalar(f"{self.train_metrics.get_name()} {met.__name__}", met(output, target), step)
 
             if batch_idx % self.log_step == 0:
                 print('Train Epoch: {} {} Loss: {:.6f}'.format(epoch, self._progress(batch_idx), loss.item()))
-                self.writer.add_image('input', make_grid([make_grid(data.cpu()[0], nrow=8, normalize=True),
-                                                          make_grid(data.cpu()[1], nrow=8, normalize=True)], nrow=2,
-                                                         normalize=True))
-
-            # if epoch > 1:
-            #     with torch.no_grad():
-            #         pred = torch.sigmoid(output) > 0.5
-            #         assert pred.shape[0] == len(target)
-            #         correct = 0
-            #         correct += torch.sum(pred.squeeze().long() == target).item()
-            #     print("Target", target)
-            #     print("Predic", pred.squeeze().long())
-            #     print(correct / len(target))
+                # self.writer.add_image(f"{self.train_metrics.get_name()} input", make_grid(
+                #     [make_grid(data.cpu()[0], nrow=8, normalize=True),
+                #      make_grid(data.cpu()[1], nrow=8, normalize=True)], nrow=2, normalize=True), step)
 
         log = self.train_metrics.result()
+        self.writer.add_scalar(f"{self.train_metrics.get_name()} epoch loss", log["loss"], epoch)
+        for met in self.metric_ftns:
+            self.writer.add_scalar(f"{self.train_metrics.get_name()} epoch {met.__name__}", log[met.__name__], epoch)
 
         # add histogram of model parameters to the tensorboard
         for name, p in self.model.named_parameters():
-            self.writer.add_histogram(name, p, bins='auto')
+            self.writer.add_histogram(name, p, epoch, bins='auto')
 
         if self.val_loader is not None:
             val_log = self._valid_epoch(epoch)
-            log.update(**{'val_' + k: v for k, v in val_log.items()})
+            log.update(**{f"{self.valid_metrics.get_name()} {k}": v for k, v in val_log.items()})
 
         if self.val_oneshot_loader is not None:
-            prefix = "val_"
-            val_oneshot_log = self._oneshot_epoch(epoch, self.val_oneshot_loader, self.valid_oneshot_metrics, prefix)
-            log.update(**{prefix + k: v for k, v in val_oneshot_log.items()})
+            val_oneshot_log = self._oneshot_epoch(epoch, self.val_oneshot_loader, self.valid_oneshot_metrics)
+            log.update(**{f"{self.valid_oneshot_metrics.get_name()} {k}": v for k, v in val_oneshot_log.items()})
 
         if self.test_loader is not None:
             # TODO remove this :-)
-            prefix = "test_"
-            test_log = self._oneshot_epoch(epoch, self.test_loader, self.test_oneshot_metrics, prefix)
-            log.update(**{prefix + k: v for k, v in test_log.items()})
+            test_log = self._oneshot_epoch(epoch, self.test_loader, self.test_oneshot_metrics)
+            log.update(**{f"{self.test_oneshot_metrics.get_name()} {k}": v for k, v in test_log.items()})
 
         if self.lr_scheduler is not None:
             self.lr_scheduler.step()  # TODO
+
         return log
 
     def _valid_epoch(self, epoch):
@@ -105,31 +102,33 @@ class OmniglotTrainer(BaseTrainer):
                 output = self.model(data[0], data[1])
                 loss = self.criterion(output, target.unsqueeze(1).float())
 
-                self.writer.set_step((epoch - 1) * len(self.val_loader) + batch_idx, 'valid')  # TODO check this
+                # step = (epoch - 1) * len(self.val_loader) + batch_idx
+                # self.writer.add_scalar(f"{self.valid_metrics.get_name()} loss", loss.item(), step)
                 self.valid_metrics.update('loss', loss.item())
 
                 self.model.eval()
                 output = self.model(data[0], data[1])
                 for met in self.metric_ftns:
-                    self.valid_metrics.update(met.__name__, met(output, target))
-                self.writer.add_image('input', OmniglotVisualizer.make_next_batch_grid(data.cpu()))
+                    m = met(output, target)
+                    # self.writer.add_scalar(f"{self.valid_metrics.get_name()} {met.__name__}", m, step)
+                    self.valid_metrics.update(met.__name__, m)
 
-        return self.valid_metrics.result()
+        result = self.valid_metrics.result()
+        self.writer.add_scalar(f"{self.valid_metrics.get_name()} epoch loss", result["loss"], epoch)
+        for met in self.metric_ftns:
+            self.writer.add_scalar(f"{self.valid_metrics.get_name()} epoch {met.__name__}", result[met.__name__], epoch)
+        return result
 
-    def _oneshot_epoch(self, epoch, loader, metrics, name="valid"):
-
+    def _oneshot_epoch(self, epoch, loader, metrics):
         self.model.eval()
-        self.valid_metrics.reset()
-
-        correct = 0
-        total = 0
+        metrics.reset()
 
         with torch.no_grad():
             for batch_idx, (data,) in enumerate(loader):
-                for current_batch_data in data:
+
+                for i, current_batch_data in enumerate(data):
                     # TODO actually, it does not make much sense to use batches in here, not in this way as i've modeled
                     #  it where I have to anyways unzip the pairs inside each batch. Consider remodeling oneshot dataloader
-                    self.writer.set_step((epoch - 1) * len(loader) * 20 + batch_idx * 20, name)  # TODO check this
 
                     current_batch_data = current_batch_data.to(self.device)
                     second = current_batch_data[1]
@@ -138,17 +137,27 @@ class OmniglotTrainer(BaseTrainer):
                         target = torch.tensor([target]).to(self.device)
                         output = self.model(first_image.expand(second.shape), second)
 
-                        pred = output.max(0)[1]
-                        correct += int(pred == target)
-                        total += 1
-
                         for met in self.metric_ftns_oneshot:
-                            metrics.update(met.__name__, met(output, target))
-                        self.writer.add_image('input',
-                                              OmniglotVisualizer.make_next_oneshot_batch_grid(current_batch_data.cpu()))
+                            m = met(output, target)
+                            metrics.update(met.__name__, m)
 
-            print(correct/total)
-            return metrics.result()
+                        if target == 9 and i % 3 == 0:
+                            pred = output.max(0)[1]
+                            # correct += int(pred == target)
+                            # total += 1
+                            print(epoch, "output", output.tolist())
+                            print("\tpred", pred)
+                            print("\ttarget", target)
+
+                            self.writer.add_image(
+                                f'epoch:{epoch}_{metrics.get_name()}_target:{target.item()}_pred:{pred.item()}___{output.tolist()}',
+                                OmniglotVisualizer.make_next_batch_grid(torch.cat(
+                                    [first_image.expand(second.shape).unsqueeze(0), second.unsqueeze(0)]).transpose(1,
+                                                                                                                    0).cpu()))
+            result = metrics.result()
+            for met in self.metric_ftns_oneshot:
+                self.writer.add_scalar(f"{metrics.get_name()} {met.__name__}", result[met.__name__], epoch)
+            return result
 
     def _progress(self, batch_idx):
         base = '[{}/{} ({:.0f}%)]'

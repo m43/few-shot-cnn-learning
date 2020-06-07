@@ -62,15 +62,15 @@ class OmniglotDataLoaderCreator:
         dataset = self._load_uniform_dataset_from_alphabets(self._train_alphabet_dict, alphabets, self.train_samples,
                                                             writers)
 
-        if self.train_affine_distortions:
-            # TODO
-            raise Exception("Not implemented yet")
-
         return dataset
 
     @staticmethod
+    def _generate_random_affine_transform():
+        return None
+
+    @staticmethod
     def _load_uniform_dataset_from_alphabets(alphabet_dict: Dict, alphabets: List[str], samples: int,
-                                             writer_range: List[int]):
+                                             writer_range: List[int], train_affine_distortions: bool = False, ):
         data = []
         labels = []
         for i in tqdm(range(samples // 2 // len(alphabets))):
@@ -86,11 +86,24 @@ class OmniglotDataLoaderCreator:
 
                 data.append([alphabet_dict[alphabet][char_1_idx][writer_1_idx],
                              alphabet_dict[alphabet][char_1_idx][writer_2_idx]])
-                labels.append(0)
+                labels.append(1)
 
                 data.append([alphabet_dict[alphabet][char_1_idx][writer_1_idx],
                              alphabet_dict[alphabet][char_2_idx][writer_2_idx]])
-                labels.append(1)
+                labels.append(0)
+
+        # if train_affine_distortions:
+        # for i in tqdm(range(len(dataset))):
+        #     pair = dataset[i]
+        #     for _ in self.train_affine_distortions_number:
+        #         t1 = OmniglotDataLoaderCreator._generate_random_affine_transform()
+        #         t2 = OmniglotDataLoaderCreator._generate_random_affine_transform()
+        #
+        #         t = torchvision.transforms.RandomAffine()
+        #         torchvision.transforms.Compose([
+        #             torchvision.transforms.RandomAffine()
+        #             ])
+        #     dataset.transformed)
 
         return TensorDataset(torch.tensor(data), torch.tensor(labels))
 
@@ -176,8 +189,8 @@ class OmniglotVisualizer:
 
     @staticmethod
     def make_next_batch_grid(img_pairs):
-        return torchvision.utils.make_grid([torch.cat([pair[0], pair[1]], dim=2) for pair in img_pairs],
-                                           nrow=5, normalize=True)
+        return torchvision.utils.make_grid([torch.cat([pair[0], pair[1]], dim=2) for pair in img_pairs], nrow=5,
+                                           normalize=True)
 
     @staticmethod
     def make_next_oneshot_batch_grid(data):
