@@ -50,9 +50,16 @@ class CnnKoch2015(nn.Module):
         super().__init__()
 
         self.conv1 = nn.Conv2d(1, 64, 10, 1, )
+        self.conv1_bn = nn.BatchNorm2d(64)
+
         self.conv2 = nn.Conv2d(64, 128, 7, 1)
+        self.conv2_bn = nn.BatchNorm2d(128)
+
         self.conv3 = nn.Conv2d(128, 128, 4, 1)
+        self.conv3_bn = nn.BatchNorm2d(128)
+
         self.conv4 = nn.Conv2d(128, 256, 4, 1)
+        self.conv4_bn = nn.BatchNorm2d(256)
 
         self._init_convolution_layers([self.conv1, self.conv2, self.conv3, self.conv4])
 
@@ -75,26 +82,34 @@ class CnnKoch2015(nn.Module):
         right = self._cnn_forward(x2)
 
         x = torch.abs(left - right)
-        # x = torch.norm(left - right, 2)
         x = self.fc_final(x)
 
         return x
 
     def _cnn_forward(self, x):
         # x is 1x105x105
-        x = torch.relu(self.conv1(x))  # 64x96x96
+        x = self.conv1(x)  # 64x96x96
+        x = self.conv1_bn(x)
+        x = torch.relu(x)
         x = torch.max_pool2d(x, kernel_size=2, stride=2)  # 64x48x48
 
-        x = torch.relu(self.conv2(x))  # 128x42x42
+        x = self.conv2(x)  # 128x42x42
+        x = self.conv2_bn(x)
+        x = torch.relu(x)
         x = torch.max_pool2d(x, kernel_size=2, stride=2)  # 128x21x21
 
-        x = torch.relu(self.conv3(x))  # 128x18x18
+        x = self.conv3(x)  # 128x18x18
+        x = self.conv3_bn(x)
+        x = torch.relu(x)
         x = torch.max_pool2d(x, kernel_size=2, stride=2)  # 128x9x9
 
-        x = torch.relu(self.conv4(x))  # 256x6x6
+        x = self.conv4(x)  # 256x6x6 = 9216
+        x = self.conv4_bn(x)
+        x = torch.relu(x)
         x = x.view(-1, 256 * 6 * 6)
 
-        x = torch.relu(self.fc1(x))  # 4096
+        x = self.fc1(x)  # 4096
+        x = torch.sigmoid(x)
         return x
 
     def summary(self, device="cpu"):
