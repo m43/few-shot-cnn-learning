@@ -1,9 +1,9 @@
 import random
 
 from data_loader.data_loaders import OmniglotDataLoaderCreator
+from model import accuracy, accuracy_oneshot, top_k_acc
 from model.model import CnnKoch2015
 from trainer import *
-from utils.util import top_k_acc, accuracy, accuracy_oneshot
 
 if __name__ == '__main__':
     random.seed(72)
@@ -20,8 +20,18 @@ if __name__ == '__main__':
     print(device_ids)
     print("Using device", device)
 
-    omniglot_dataloader_creator = OmniglotDataLoaderCreator("./data/", 30000, 10000, 320, 400, False, 8)
-    train_loader = omniglot_dataloader_creator.load_train(128, True)
+    ## DATASET/DATALOADER PARAMETERS
+    train_samples = 30000
+    train_batch_size = 128
+    train_shuffle = True
+    validation_samples = 10000
+    do_affine_transformations = False
+
+    omniglot_dataloader_creator = OmniglotDataLoaderCreator(
+        "./data/", train_samples, validation_samples, 320, 400, do_affine_transformations, 8)
+
+    train_loader = omniglot_dataloader_creator.load_train(train_batch_size, train_shuffle)
+    train_oneshot_loader = omniglot_dataloader_creator._load_train_oneshot()
     val_loader = omniglot_dataloader_creator.load_validation(False, 128)
     val_oneshot_loader = omniglot_dataloader_creator.load_validation(True, 2)
     test_oneshot_loader = omniglot_dataloader_creator.load_test(2)
@@ -31,18 +41,23 @@ if __name__ == '__main__':
     # val_oneshot_loader = omniglot_dataloader_creator.load_validation(True, 2, False)
     # test_oneshot_loader = omniglot_dataloader_creator.load_test(2, False)
 
+    ## TRAIN PARAMETERS
     koch2015 = CnnKoch2015()
-    learning_rate = 0.00006
+    learning_rate = 1e-4  # 0.00006
+    weight_decay = 1e-2
     epochs = 500
+    early_stopping = 60
     criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
-    optimizer = torch.optim.Adam(koch2015.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(koch2015.parameters(), lr=learning_rate, weight_decay=weight_decay)
     metric_ftns = [accuracy]
     metric_ftns_oneshot = [accuracy_oneshot, top_k_acc]
     save_folder = "./saved/"
 
-    trainer = OmniglotTrainer(koch2015, criterion, metric_ftns, metric_ftns_oneshot, optimizer, device, [], epochs,
-                              save_folder, "max val accuracy_oneshot", train_loader, val_loader, val_oneshot_loader,
-                              test_oneshot_loader)
+    run_name = f"{train_samples // 1000}k{'+af' if do_affine_transformations else ''} lr:{learning_rate} wd:{weight_decay} norm img"
+    trainer = OmniglotTrainer(run_name, koch2015, criterion, metric_ftns,
+                              metric_ftns_oneshot, optimizer, device, [], epochs,
+                              save_folder, "max val accuracy_oneshot", early_stopping, train_loader, val_loader,
+                              val_oneshot_loader, test_oneshot_loader, train_oneshot_loader, 1)
 
     koch2015.summary(device.type)
     trainer.train()

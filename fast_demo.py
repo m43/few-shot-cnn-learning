@@ -1,9 +1,9 @@
 import random
 
 from data_loader.data_loaders import OmniglotDataLoaderCreator
+from model import accuracy, accuracy_oneshot, top_k_acc
 from model.model import CnnKoch2015
 from trainer import *
-from utils.util import top_k_acc, accuracy, accuracy_oneshot
 
 if __name__ == '__main__':
     random.seed(72)

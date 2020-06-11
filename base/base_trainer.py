@@ -13,7 +13,8 @@ class BaseTrainer:
     Base class for all trainers
     """
 
-    def __init__(self, model, criterion, metric_ftns, optimizer, device, device_ids, epochs, save_folder, monitor):
+    def __init__(self, run_name, model, criterion, metric_ftns, optimizer, device, device_ids, epochs, save_folder,
+                 monitor, start_epoch=1, early_stopping=30):
         self.device = device
         self.model = model.to(device)
         if len(device_ids) > 1:
@@ -24,18 +25,20 @@ class BaseTrainer:
         self.optimizer = optimizer
 
         self.epochs = epochs
-        self.start_epoch = 1
+        self.start_epoch = start_epoch
 
-        self.logs_folder = f"log/{datetime.now()}"
-        self.checkpoint_location = os.path.join(save_folder, f"models/{model._get_name()}/{datetime.now()}/)")
+        run_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " " + run_name
+        self.logs_folder = os.path.join(save_folder, f"log/{model._get_name()}/{run_name}")
+        self.logs_file_path = os.path.join(save_folder, f"log/{model._get_name()}/{run_name}/log.txt")
+        self.checkpoint_location = os.path.join(save_folder, f"models/{model._get_name()}/{run_name}/")
         ensure_dir(self.logs_folder)
         ensure_dir(self.checkpoint_location)
-        self.writer = SummaryWriter(os.path.join(save_folder, self.logs_folder))
+        self.writer = SummaryWriter(self.logs_folder)
 
         monitor_parts = monitor.split(maxsplit=1)
         self.monitor_mode = monitor_parts[0].lower()
         self.monitor_best = monitor_parts[1]
-        self.monitor_early_stopping = 30
+        self.monitor_early_stopping = early_stopping
 
         assert (self.monitor_mode == "min" or self.monitor_mode == "max")
 
@@ -52,8 +55,12 @@ class BaseTrainer:
             log = {'epoch': epoch}
             log.update(result)
 
-            for key, value in log.items():
-                print('    {:15s}: {}'.format(str(key), value))
+            with open(self.logs_file_path, "a") as log_file:
+                for key, value in log.items():
+                    line = '    {:15s}: {}'.format(str(key), value)
+                    print(line)
+                    log_file.write(f"{line}\n")
+                log_file.write("\n")
 
             is_better = best is None or self.monitor_mode == "min" and log[self.monitor_best] < best or \
                         self.monitor_mode == "max" and log[self.monitor_best] > best
@@ -67,6 +74,8 @@ class BaseTrainer:
                 early_stop_counter += 1
                 if early_stop_counter >= self.monitor_early_stopping:
                     print(f"Early stopping. {self.monitor_best} metric of best model: {best}")
+                    os.rename(f"{self.checkpoint_location}best_model.pth",
+                              f"{self.checkpoint_location}best_model vo:{best}.pth")
                     return
 
             checkpoint = f"{self.checkpoint_location}epoch{epoch:03d}_valAcc{log[self.monitor_best]:.5f}.pth"

@@ -3,7 +3,8 @@ from collections import OrderedDict
 from pathlib import Path
 
 import pandas as pd
-import torch
+
+from model import accuracy, top_k_acc
 
 
 class MetricTracker:
@@ -29,35 +30,6 @@ class MetricTracker:
 
     def result(self):
         return dict(self._data.average)
-
-
-def accuracy(output, target):
-    with torch.no_grad():
-        pred = torch.sigmoid(output) > 0.5
-        assert len(pred) == len(target)
-        correct = 0
-        correct += torch.sum(pred.squeeze().long() == target).item()
-    return correct / len(target)
-
-
-def accuracy_oneshot(output, target):
-    with torch.no_grad():
-        # TODO support batch
-        pred = output.max(0)[1]
-        assert len(pred) == len(target)
-        correct = torch.sum(pred == target).item()
-    return correct / len(target)
-
-
-def top_k_acc(output, target, k=3):
-    with torch.no_grad():
-        pred = torch.topk(output, k, dim=0)[1]
-        # assert pred.shape[0] == len(target)
-        assert pred.shape[1] == len(target)
-        correct = 0
-        for i in range(k):
-            correct += torch.sum(pred[i] == target).item()
-    return correct / len(target)
 
 
 def ensure_dir(dirname):
@@ -154,10 +126,10 @@ if __name__ == '__main__':
     metric_ftns = [accuracy]
     metric_ftns_oneshot = [accuracy, top_k_acc]
     writer = None
-    train_metrics = MetricTracker('loss', *[m.__name__ for m in metric_ftns], writer=writer)
-    valid_metrics = MetricTracker('loss', *[m.__name__ for m in metric_ftns], writer=writer)
-    valid_oneshot_metrics = MetricTracker('loss', *[m.__name__ for m in metric_ftns_oneshot], writer=writer)
-    test_oneshot_metrics = MetricTracker('loss', *[m.__name__ for m in metric_ftns_oneshot], writer=writer)
+    train_metrics = MetricTracker("train", 'loss', *[m.__name__ for m in metric_ftns])
+    valid_metrics = MetricTracker("valid", 'loss', *[m.__name__ for m in metric_ftns])
+    valid_oneshot_metrics = MetricTracker("valid_oneshot", 'loss', *[m.__name__ for m in metric_ftns_oneshot])
+    test_oneshot_metrics = MetricTracker("test",'loss', *[m.__name__ for m in metric_ftns_oneshot])
 
     train_metrics.reset()
     valid_metrics.reset()
