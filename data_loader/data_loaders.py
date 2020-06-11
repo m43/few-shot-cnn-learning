@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 import os
 import random
 from datetime import datetime
@@ -20,9 +19,6 @@ class OmniglotDataLoaderCreator:
     """
     Class that takes care of creating DataLoaders for Omniglot dataset
     """
-
-    BACKGROUND_FOLDER_NAME = "omniglot-py/images_background"
-    EVALUATION_FOLDER_NAME = "omniglot-py/images_evaluation"
 
     def __init__(self, data_dir, train_samples=3000, validation_samples=1000, validation_shots=320,
                  test_shots=400, train_affine_distortions=False, train_affine_distortions_number=8):
@@ -46,9 +42,28 @@ class OmniglotDataLoaderCreator:
         evaluation_location = os.path.join(self.data_dir, self.EVALUATION_FOLDER_NAME)
         self._eval_alphabets, self._eval_alphabet_dict = self._load_alphabets_from_disk(evaluation_location)
 
-    def load_train(self, batch_size: int = 1, shuffle: bool = False) -> DataLoader:
+    BACKGROUND_FOLDER_NAME = "omniglot-py/images_background"
+    EVALUATION_FOLDER_NAME = "omniglot-py/images_evaluation"
+
+    TRANSFORMATIONS = torchvision.transforms.Compose([
+        torchvision.transforms.ToTensor(),
+        torchvision.transforms.Normalize((0.9217844519089332,), (0.26851047769786074,), inplace=True)
+    ])
+
+    def load_train(self, batch_size: int = 1, shuffle: bool = False, num_workers: int = 6) -> DataLoader:
         print("Loading train loader", flush=True)
-        return DataLoader(self._load_train_dataset(), batch_size, shuffle)
+        return DataLoader(self._load_train_dataset(), batch_size, shuffle, num_workers=num_workers)
+
+    def _load_train_oneshot(self, batch_size: int = 1, shuffle: bool = False, num_workers: int = 6):
+        # alphabets 01-30
+        # writers 01-12
+        # uniform alphabet distribution
+
+        alphabets = self._train_alphabets
+        writers = list(range(1, 12 + 1))
+
+        dataset = self._load_one_shot_dataset(self._train_alphabet_dict, alphabets, self.test_shots, 20, writers)
+        return DataLoader(dataset, batch_size, shuffle, num_workers=num_workers)
 
     def _load_train_dataset(self):
         # alphabets 1-30
@@ -60,20 +75,37 @@ class OmniglotDataLoaderCreator:
         writers = list(range(1, 12 + 1))
 
         dataset = self._load_uniform_dataset_from_alphabets(self._train_alphabet_dict, alphabets, self.train_samples,
-                                                            writers)
+                                                            writers, self.train_affine_distortions,
+                                                            self.train_affine_distortions_number)
 
         return dataset
 
     @staticmethod
     def _generate_random_affine_transform():
-        return None
+        degrees = 10
+        translate = (0.1, 0.1)  # TODO what means (-2,2) in original paper?
+        scale = (0.8, 1.2)
+        shear = (-0.3, 0.3)
+
+        if random.getrandbits(1):
+            degrees = 0
+        if random.getrandbits(1):
+            translate = None
+        if random.getrandbits(1):
+            scale = None
+        if random.getrandbits(1):
+            shear = None
+
+        return torchvision.transforms.Compose(
+            [torchvision.transforms.RandomAffine(degrees, translate, scale, shear, fillcolor=255)])
 
     @staticmethod
     def _load_uniform_dataset_from_alphabets(alphabet_dict: Dict, alphabets: List[str], samples: int,
-                                             writer_range: List[int], train_affine_distortions: bool = False, ):
+                                             writer_range: List[int], train_affine_distortions: bool = False,
+                                             train_affine_distortions_number=8):
         data = []
         labels = []
-        for i in tqdm(range(samples // 2 // len(alphabets))):
+        for _ in tqdm(range(samples // 2 // len(alphabets))):
             for alphabet in alphabets:  # uniform number of training examples per alphabet
 
                 char_1_idx = random.randint(1, len(alphabet_dict[alphabet])) - 1
@@ -81,33 +113,46 @@ class OmniglotDataLoaderCreator:
                 if char_1_idx == char_2_idx:  # make sure that char1 is not the same as char2
                     char_2_idx = len(alphabet_dict[alphabet]) - 1
 
-                writer_1_idx = random.choice(writer_range) - 1
-                writer_2_idx = random.choice(writer_range) - 1  # can be the same as writer1
+                drawer_1_idx, drawer_2_idx = random.sample(writer_range, 2)
+                drawer_1_idx, drawer_2_idx = drawer_1_idx - 1, drawer_2_idx - 1
+                # writer_1_idx = random.choice(writer_range) - 1
+                # writer_2_idx = random.choice(writer_range) - 1  # can be the same as writer1
 
-                data.append([alphabet_dict[alphabet][char_1_idx][writer_1_idx],
-                             alphabet_dict[alphabet][char_1_idx][writer_2_idx]])
-                labels.append(1)
+                data.append([alphabet_dict[alphabet][char_1_idx][drawer_1_idx],
+                             alphabet_dict[alphabet][char_1_idx][drawer_2_idx]])
+                labels.append(1.)
 
-                data.append([alphabet_dict[alphabet][char_1_idx][writer_1_idx],
-                             alphabet_dict[alphabet][char_2_idx][writer_2_idx]])
-                labels.append(0)
+                data.append([alphabet_dict[alphabet][char_1_idx][drawer_1_idx],
+                             alphabet_dict[alphabet][char_2_idx][drawer_2_idx]])
+                labels.append(0.)
 
-        # if train_affine_distortions:
-        # for i in tqdm(range(len(dataset))):
-        #     pair = dataset[i]
-        #     for _ in self.train_affine_distortions_number:
-        #         t1 = OmniglotDataLoaderCreator._generate_random_affine_transform()
-        #         t2 = OmniglotDataLoaderCreator._generate_random_affine_transform()
-        #
-        #         t = torchvision.transforms.RandomAffine()
-        #         torchvision.transforms.Compose([
-        #             torchvision.transforms.RandomAffine()
-        #             ])
-        #     dataset.transformed)
+        if train_affine_distortions:
+            new_data = []
+            new_labels = []
+            for i in tqdm(range(len(data))):
+                pair = data[i]
+                label = labels[i]
+                # new_data.append(pair)
+                # new_labels.append(label)
+                for _ in range(train_affine_distortions_number):
+                    t1 = OmniglotDataLoaderCreator._generate_random_affine_transform()
+                    t2 = OmniglotDataLoaderCreator._generate_random_affine_transform()
+                    # new_data.append([t1(pair[0]), t2(pair[1])])
+                    # new_labels.append(label)
+                    data.append([t1(pair[0]), t2(pair[1])])
+                    labels.append(label)
+            # data = new_data
+            # labels = new_labels
 
-        return TensorDataset(torch.tensor(data), torch.tensor(labels))
+        for i in range(len(data)):
+            first = OmniglotDataLoaderCreator.TRANSFORMATIONS(data[i][0])
+            second = OmniglotDataLoaderCreator.TRANSFORMATIONS(data[i][1])
+            data[i] = torch.cat([first.unsqueeze(0), second.unsqueeze(0)]).unsqueeze(0)
 
-    def load_validation(self, oneshot: bool, batch_size: int = 1, shuffle: bool = False) -> DataLoader:
+        return TensorDataset(torch.cat(data), torch.tensor(labels).unsqueeze(1))
+
+    def load_validation(self, oneshot: bool, batch_size: int = 1, shuffle: bool = False,
+                        num_workers: int = 6) -> DataLoader:
         # alphabets 31-40
         # writers 13-16
         # uniform alphabet distribution
@@ -120,17 +165,17 @@ class OmniglotDataLoaderCreator:
             print("Loading oneshot validation loader", flush=True)
             val_dataset = self._load_one_shot_dataset(self._eval_alphabet_dict, alphabets, self.validation_shots,
                                                       20, writers)
-            return DataLoader(val_dataset, batch_size, shuffle)
+            return DataLoader(val_dataset, batch_size, shuffle, num_workers=num_workers)
 
         else:
             print("Loading validation loader", flush=True)
             val_dataset = self._load_uniform_dataset_from_alphabets(self._eval_alphabet_dict, alphabets,
                                                                     self.validation_samples, writers)
-            return DataLoader(val_dataset, batch_size, shuffle)
+            return DataLoader(val_dataset, batch_size, shuffle, num_workers=num_workers)
 
-    def load_test(self, batch_size: int = 1, shuffle: bool = False) -> DataLoader:
+    def load_test(self, batch_size: int = 1, shuffle: bool = False, num_workers: int = 6) -> DataLoader:
         print("Loading oneshot test loader", flush=True)
-        return DataLoader(self._load_test_dataset(), batch_size, shuffle)
+        return DataLoader(self._load_test_dataset(), batch_size, shuffle, num_workers=num_workers)
 
     def _load_test_dataset(self):
         # alphabets 41-50
@@ -150,26 +195,41 @@ class OmniglotDataLoaderCreator:
         data = []
         for _ in tqdm(range(shots // n_way)):
             alphabet = random.choice(alphabets)
+            while len(alphabet_dict[alphabet]) < n_way:
+                alphabet = random.choice(alphabets)
+
             characters = random.sample(list(range(len(alphabet_dict[alphabet]))), n_way)
             drawer_1_idx, drawer_2_idx = random.sample(writer_range, 2)
             drawer_1_idx, drawer_2_idx = drawer_1_idx - 1, drawer_2_idx - 1
 
             data.append([[], []])
             for i in range(n_way):
-                data[-1][0].append(alphabet_dict[alphabet][characters[i]][drawer_1_idx])
-                data[-1][1].append(alphabet_dict[alphabet][characters[i]][drawer_2_idx])
+                data[-1][0].append(
+                    OmniglotDataLoaderCreator.TRANSFORMATIONS(
+                        alphabet_dict[alphabet][characters[i]][drawer_1_idx]).unsqueeze(0))
+                data[-1][1].append(
+                    OmniglotDataLoaderCreator.TRANSFORMATIONS(
+                        alphabet_dict[alphabet][characters[i]][drawer_2_idx]).unsqueeze(0))
+            data[-1] = torch.cat([torch.cat(data[-1][0]).unsqueeze(0), torch.cat(data[-1][1]).unsqueeze(0)])
+            data[-1] = data[-1].unsqueeze(0)
 
-        return TensorDataset(torch.tensor(data))
+        return TensorDataset(torch.cat(data))
 
     @staticmethod
     def _load_alphabets_from_disk(path: str) -> (Dict, List):
         alphabet_dict = {}
         alphabets = sorted(os.listdir(path))
 
+        ## white
         transforms = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize((0,), (1,))  # TODO or try with whole dataset TODO2 is inplace needed?
+            OmniglotDataLoaderCreator.TRANSFORMATIONS
         ])
+
+        ## black (better for RELU)
+        # transforms = torchvision.transforms.Compose([
+        #     torchvision.transforms.ToTensor()
+        # ])
 
         for alphabet in tqdm(alphabets):
             alphabet_location = os.path.join(path, alphabet)
@@ -181,7 +241,17 @@ class OmniglotDataLoaderCreator:
                         alphabet_dict[alphabet] = {}
                     if char_idx not in alphabet_dict[alphabet]:
                         alphabet_dict[alphabet][char_idx] = {}
-                    alphabet_dict[alphabet][char_idx][writer_idx] = np.asarray(transforms(Image.open(image_location)))
+
+                    ## white
+                    # img = np.asarray(transforms(Image.open(image_location)))
+                    img = Image.open(image_location).copy()
+
+                    ## black
+                    # img = 1 - np.asarray(transforms(Image.open(image_location)))
+                    # img = (img - (1 - 0.9220603704452515)) / (0.2680765986442566)
+
+                    alphabet_dict[alphabet][char_idx][writer_idx] = img
+
         return alphabets, alphabet_dict
 
 
@@ -195,9 +265,9 @@ class OmniglotVisualizer:
     @staticmethod
     def make_next_oneshot_batch_grid(data):
         return torchvision.utils.make_grid([torch.cat([
-            torchvision.utils.make_grid(pair[0], nrow=5),
-            torchvision.utils.make_grid(pair[1], nrow=5)
-        ], dim=2) for pair in data], nrow=1, normalize=True)
+            torchvision.utils.make_grid(pair[0], nrow=5, normalize=True),
+            torchvision.utils.make_grid(pair[1], nrow=5, normalize=True)
+        ], dim=2) for pair in data], nrow=1)
 
     @staticmethod
     def visualize_next_batch(loader, show_plot=True, save_plot=False):
@@ -245,10 +315,11 @@ if __name__ == '__main__':
     print()
 
     print("Creating dataloaders:")
-    train_loader = omniglot_dataloader_creator.load_train(100, True)
-    val_loader = omniglot_dataloader_creator.load_validation(False, 100, True)
-    val_oneshot_loader = omniglot_dataloader_creator.load_validation(True, 5, True)
-    test_oneshot_loader = omniglot_dataloader_creator.load_test(5, True)
+    # train_loader = omniglot_dataloader_creator.load_train(100, True)
+    train_loader = omniglot_dataloader_creator.load_train(100, False)
+    val_loader = omniglot_dataloader_creator.load_validation(False, 100, False)
+    val_oneshot_loader = omniglot_dataloader_creator.load_validation(True, 5, False)
+    test_oneshot_loader = omniglot_dataloader_creator.load_test(5, False)
 
     list(iter(train_loader.dataset))
     OmniglotVisualizer.visualize_next_batch(train_loader, False, True)
@@ -265,9 +336,42 @@ if __name__ == '__main__':
     data, = next(iter(test_oneshot_loader))
     new_shape = (30, 1, 105, 105)
     ae = data[0][0][0].expand(new_shape)
-    grid = torchvision.utils.make_grid(ae, nrow=5)
+    grid = torchvision.utils.make_grid(ae, nrow=5, normalize=True)
     plt.figure(figsize=(18, 18))
     plt.axis("off")
     plt.imshow(np.transpose(grid, (1, 2, 0)))
     plt.savefig(OmniglotVisualizer.generate_name())
     # perfect!
+
+    ## Lets calculate the norm and std of the train dataset
+    all_pics = []
+    for _, chars in omniglot_dataloader_creator._train_alphabet_dict.items():
+        for _, writer in chars.items():
+            for w_idx in range(12):
+                all_pics.append(np.asarray(writer[w_idx], dtype=float))
+
+    print(f"Train pics number is {len(all_pics)}. Chars: {len(all_pics) // 12}")
+    all_pics = torch.tensor(all_pics)
+    mean = all_pics.mean()
+    std = all_pics.std()
+    print(f"Mean is {mean}. Std is {std}")
+    # Mean is 0.9220603704452515.Std is 0.2680765986442566 --> for all 20 writers - wrong!
+    # Mean is 0.9217844519089332. Std is 0.26851047769786074
+
+    ## After transformations
+    all_pics = []
+    for _, chars in omniglot_dataloader_creator._train_alphabet_dict.items():
+        for _, writer in chars.items():
+            for w_idx in range(12):
+                all_pics.append(OmniglotDataLoaderCreator.TRANSFORMATIONS(np.asarray(writer[w_idx], dtype=float)).unsqueeze(0))
+    all_pics = torch.cat(all_pics)
+    mean = all_pics.mean()
+    std = all_pics.std()
+    print(f"AFTER TRANSFORMATIONS: Mean is {mean}. Std is {std}")
+    # AFTER TRANSFORMATIONS: Mean is 4.543505702984737e-14. Std is 1.0000000010851275
+
+    ## Plot whole train loader
+    t = list(iter(train_loader))
+    img_pairs = [e[0] for e in t]
+    img_labels = [e[1] for e in t]
+    # OmniglotVisualizer.visualize_next_batch([[img_pairs, img_labels]], True, True)
