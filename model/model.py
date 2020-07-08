@@ -50,6 +50,69 @@ class CnnKoch2015(nn.Module):
         super().__init__()
 
         self.conv1 = nn.Conv2d(1, 64, 10, 1, )
+
+        self.conv2 = nn.Conv2d(64, 128, 7, 1)
+
+        self.conv3 = nn.Conv2d(128, 128, 4, 1)
+
+        self.conv4 = nn.Conv2d(128, 256, 4, 1)
+
+        self._init_convolution_layers([self.conv1, self.conv2, self.conv3, self.conv4])
+
+        self.fc1 = nn.Linear(in_features=256 * 6 * 6, out_features=4096)
+        self.fc_final = nn.Linear(in_features=4096, out_features=1)
+        self._init_linear_layers([self.fc1, self.fc_final])
+
+    def _init_convolution_layers(self, conv_layers):
+        for c in conv_layers:
+            nn.init.normal_(c.weight, mean=0, std=0.01)
+            nn.init.normal_(c.bias, mean=0.5, std=0.01)
+
+    def _init_linear_layers(self, linear_layers):
+        for l in linear_layers:
+            nn.init.normal_(l.weight, mean=0, std=0.2)
+            nn.init.normal_(l.bias, mean=0.5, std=0.01)
+
+    def forward(self, x1, x2):
+        left = self._cnn_forward(x1)
+        right = self._cnn_forward(x2)
+
+        x = torch.abs(left - right)
+        x = self.fc_final(x)
+
+        return x
+
+    def _cnn_forward(self, x):
+        # x is 1x105x105
+        x = self.conv1(x)  # 64x96x96
+        x = torch.relu(x)
+        x = torch.max_pool2d(x, kernel_size=2, stride=2)  # 64x48x48
+
+        x = self.conv2(x)  # 128x42x42
+        x = torch.relu(x)
+        x = torch.max_pool2d(x, kernel_size=2, stride=2)  # 128x21x21
+
+        x = self.conv3(x)  # 128x18x18
+        x = torch.relu(x)
+        x = torch.max_pool2d(x, kernel_size=2, stride=2)  # 128x9x9
+
+        x = self.conv4(x)  # 256x6x6 = 9216
+        x = torch.relu(x)
+        x = x.view(-1, 256 * 6 * 6)
+
+        x = self.fc1(x)  # 4096
+        x = torch.sigmoid(x)
+        return x
+
+    def summary(self, device="cpu"):
+        summary(self, input_size=[(1, 105, 105), (1, 105, 105)], device=device)
+
+
+class CnnKoch2015BatchNorm(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.conv1 = nn.Conv2d(1, 64, 10, 1, )
         self.conv1_bn = nn.BatchNorm2d(64)
 
         self.conv2 = nn.Conv2d(64, 128, 7, 1)
@@ -121,3 +184,33 @@ if __name__ == '__main__':
     for name, param in net.named_parameters():
         print(name)
     net.summary()
+
+    # models_dir = "../saved/models/CnnKoch2015/90k lr:0.0001 wd:0.005 norm img/"
+    # net.load_state_dict(torch.load(f"{models_dir}best_model.pth"))
+    # net.eval()
+    # logs_dir = "../saved/log/playground2/"
+    # writer = SummaryWriter(logs_dir)
+    #
+    # correct = 0
+    # total = 0
+    # data, = next(iter(test_oneshot_loader))
+    # for i, current_batch_data in enumerate(data):
+    #     second = current_batch_data[1]
+    #     for target, first_image in enumerate(current_batch_data[0]):
+    #         target = torch.tensor([target])
+    #         output = net(first_image.expand(second.shape), second)
+    #
+    #         pred = output.max(0)[1]
+    #         correct += int(pred == target)
+    #         total += 1
+    #         print("\tpred", pred)
+    #         print("\ttarget", target)
+    #         print(output)
+    #
+    #         writer.add_image(
+    #             f'target:{target.item()}_pred:{pred.item()}___{output.tolist()}',
+    #             OmniglotVisualizer.make_next_batch_grid(torch.cat(
+    #                 [first_image.expand(second.shape).unsqueeze(0), second.unsqueeze(0)]).transpose(1,
+    #                                                                                                 0).cpu()))
+    # print(correct)
+    # print(total)
