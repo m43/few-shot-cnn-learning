@@ -2,7 +2,7 @@ import random
 
 from data_loader.data_loaders import OmniglotDataLoaderCreator
 from model import accuracy, accuracy_oneshot, top_k_acc
-from model.model import CnnKoch2015
+from model.model import CnnKoch2015, CnnKoch2015BatchNorm
 from trainer import *
 
 if __name__ == '__main__':
@@ -21,20 +21,25 @@ if __name__ == '__main__':
     print("Using device", device)
 
     ## DATASET/DATALOADER PARAMETERS
-    train_samples = 30000
+    train_samples = 150000
     train_batch_size = 128
     train_shuffle = True
     validation_samples = 10000
-    do_affine_transformations = False
+    do_affine_transformations = True
+
+    num_workers = 12
+    cache_path = "/mnt/sdb1/datasets/omniglot"
+    # cache_path = "./temp"
+    already_cached = True
 
     omniglot_dataloader_creator = OmniglotDataLoaderCreator(
         "./data/", train_samples, validation_samples, 320, 400, do_affine_transformations, 8)
 
-    train_loader = omniglot_dataloader_creator.load_train(train_batch_size, train_shuffle)
+    train_loader = omniglot_dataloader_creator.load_train(train_batch_size, train_shuffle, num_workers, cache_path, already_cached)
     train_oneshot_loader = omniglot_dataloader_creator._load_train_oneshot()
-    val_loader = omniglot_dataloader_creator.load_validation(False, 128)
-    val_oneshot_loader = omniglot_dataloader_creator.load_validation(True, 2)
-    test_oneshot_loader = omniglot_dataloader_creator.load_test(2)
+    val_loader = omniglot_dataloader_creator.load_validation(False, 128, False, num_workers)
+    val_oneshot_loader = omniglot_dataloader_creator.load_validation(True, 2, False, num_workers)
+    test_oneshot_loader = omniglot_dataloader_creator.load_test(2, False, num_workers)
 
     # train_loader = omniglot_dataloader_creator.load_train(16, False)
     # val_loader = omniglot_dataloader_creator.load_validation(False, 128, False)
@@ -43,8 +48,9 @@ if __name__ == '__main__':
 
     ## TRAIN PARAMETERS
     koch2015 = CnnKoch2015()
+    # koch2015 = CnnKoch2015BatchNorm()
     learning_rate = 1e-4  # 0.00006
-    weight_decay = 1e-2
+    weight_decay = 1e-3
     epochs = 500
     early_stopping = 60
     criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
