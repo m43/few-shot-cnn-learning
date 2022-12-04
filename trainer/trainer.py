@@ -13,8 +13,8 @@ class OmniglotTrainer(BaseTrainer):
     """
 
     def __init__(self, run_name, model, criterion, metric_ftns, metric_ftns_oneshot, optimizer, device, device_ids,
-                 epochs, save_folder, monitor, early_stopping, train_loader, val_loader=None, val_oneshot_loader=None, test_loader=None,
-                 train_oneshot_loader=None, start_epoch=1, lr_scheduler=None):
+                 epochs, save_folder, monitor, early_stopping, train_loader, val_loader=None, val_oneshot_loader=None,
+                 test_loader=None, train_oneshot_loader=None, start_epoch=1, lr_scheduler=None):
         super().__init__(run_name, model, criterion, metric_ftns, optimizer, device, device_ids, epochs, save_folder,
                          monitor, start_epoch, early_stopping)
 
@@ -28,7 +28,7 @@ class OmniglotTrainer(BaseTrainer):
 
         self.lr_scheduler = lr_scheduler
         self.len_epoch = len(self.train_loader)
-        self.log_step = int(np.sqrt(self.train_loader.batch_size))
+        self.log_step = int(np.sqrt(self.train_loader.batch_size))  # TODO
 
         self.train_metrics = MetricTracker("train", 'loss', *[m.__name__ for m in self.metric_ftns])
         self.valid_metrics = MetricTracker("val", 'loss', *[m.__name__ for m in self.metric_ftns])

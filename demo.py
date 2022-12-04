@@ -28,9 +28,9 @@ if __name__ == '__main__':
     do_affine_transformations = True
 
     num_workers = 12
-    cache_path = "/mnt/sdb1/datasets/omniglot"
+    cache_path = "/tmp/omniglot"
     # cache_path = "./temp"
-    already_cached = True
+    already_cached = False
 
     omniglot_dataloader_creator = OmniglotDataLoaderCreator(
         "./data/", train_samples, validation_samples, 320, 400, do_affine_transformations, 8)

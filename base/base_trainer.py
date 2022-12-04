@@ -27,7 +27,7 @@ class BaseTrainer:
         self.epochs = epochs
         self.start_epoch = start_epoch
 
-        run_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " " + run_name
+        # run_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " " + run_name
         self.logs_folder = os.path.join(save_folder, f"log/{model._get_name()}/{run_name}")
         self.logs_file_path = os.path.join(save_folder, f"log/{model._get_name()}/{run_name}/log.txt")
         self.checkpoint_location = os.path.join(save_folder, f"models/{model._get_name()}/{run_name}/")
@@ -78,6 +78,7 @@ class BaseTrainer:
                               f"{self.checkpoint_location}best_model vo:{best}.pth")
                     return
 
-            checkpoint = f"{self.checkpoint_location}epoch{epoch:03d}_valAcc{log[self.monitor_best]:.5f}.pth"
+            # checkpoint = f"{self.checkpoint_location}epoch{epoch:03d}_valAcc{log[self.monitor_best]:.5f}.pth"
+            checkpoint = f"{self.checkpoint_location}.pth"
             torch.save(self.model.state_dict(), checkpoint)
             print("Saved to checkpoint:", checkpoint)
